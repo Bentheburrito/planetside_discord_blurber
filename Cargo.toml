@@ -10,6 +10,7 @@ tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
 dotenv = "0.15.0"
 songbird = "0.3.0"
 auraxis = { git = "https://github.com/AnotherGenZ/auraxis-rs" }
+rand = "0.8.5"
 
 [dependencies.serenity]
 default-features = false

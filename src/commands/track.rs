@@ -1,6 +1,4 @@
 use std::env;
-use std::fs::OpenOptions;
-use std::io::prelude::*;
 
 use auraxis::api::client::{ApiClient, ApiClientConfig};
 use auraxis::api::{request::FilterType, CensusCollection};
@@ -101,22 +99,10 @@ pub async fn run(
                         .cloned()
                         .expect("Unable to get patterns in /track");
 
-                    patterns
-                        .lock()
-                        .await
-                        .push((guild.id.0, connect_to.0, character_id));
+                    // TODO: Add a check to make sure someone in this guild isn't using the bot already, instead of
+                    // just overwriting with insert().
 
-                    // Insert (guild_id, voice_channel_id, character_ids) pattern into DB to match on when events from this character arrive. Should include
-                    // the voice channel ID, character ID, and probably the discord ID of the person who initialized it.
-                    let mut file = OpenOptions::new()
-                        .write(true)
-                        .append(true)
-                        .open("/media/storage/Desktop/Coding Stuff/Rust/planetside_discord_blurber/src/commands/event_patterns")
-                        .unwrap();
-
-                    if let Err(e) = writeln!(file, "{},{},{}", guild.id, connect_to, character_id) {
-                        eprintln!("Couldn't write to file: {}", e);
-                    }
+                    patterns.lock().await.insert(character_id, guild.id.0);
 
                     return format!(
                         "Successfully joined voice channel, listening to events from {} (ID {})",

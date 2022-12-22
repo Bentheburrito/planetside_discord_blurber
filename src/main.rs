@@ -1,6 +1,6 @@
 mod commands;
 
-use auraxis::realtime::event::EventNames;
+use auraxis::realtime::event::{EventNames, GainExperience};
 use auraxis::realtime::subscription::{
     CharacterSubscription, EventSubscription, SubscriptionSettings, WorldSubscription,
 };
@@ -10,6 +10,7 @@ use auraxis::realtime::{
     event::Event,
 };
 use dotenv::dotenv;
+use rand::seq::IteratorRandom;
 use serenity::async_trait;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::gateway::Ready;
@@ -17,9 +18,11 @@ use serenity::model::id::GuildId;
 use serenity::model::prelude::Activity;
 use serenity::prelude::*;
 use songbird::{SerenityInit, Songbird, SongbirdKey};
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use tokio::task;
+
 struct Handler;
 
 #[async_trait]
@@ -94,7 +97,7 @@ impl EventHandler for Handler {
 }
 
 async fn init_ess(
-    event_patterns: Arc<Mutex<Vec<(u64, u64, u64)>>>,
+    event_patterns: Arc<Mutex<HashMap<u64, u64>>>,
     manager: Arc<Songbird>,
 ) -> RealtimeClient {
     let sid = env::var("SERVICE_ID").expect("Expected a service ID in the environment");
@@ -110,6 +113,9 @@ async fn init_ess(
             EventNames::PlayerLogout,
             EventNames::Death,
             EventNames::VehicleDestroy,
+            EventNames::ItemAdded,
+            EventNames::GainExperienceId(7),  // Revive
+            EventNames::GainExperienceId(53), // Squad Revive
         ])),
         characters: Some(CharacterSubscription::Ids(vec![5428713425545165425])),
         worlds: Some(WorldSubscription::All),
@@ -125,55 +131,107 @@ async fn init_ess(
 
     task::spawn(async move {
         while let Some(event) = event_receiver.recv().await {
-            match &event {
-                Event::Death(death) => {
-                    let patterns = event_patterns.lock().await;
-                    for pattern in patterns.iter() {
-                        match pattern {
-                            &(_, _, char_id)
-                                if char_id == death.character_id
-                                    && char_id == death.attacker_character_id =>
-                            {
-                                // Play suicide sound
-                            }
-                            &(guild_id, _, char_id) if char_id == death.character_id => {
-                                // Play died sound
-                                if let Some(handler_lock) = manager.get(guild_id) {
-                                    let mut handler = handler_lock.lock().await;
-
-                                    let source = match songbird::ffmpeg("/media/storage/Desktop/Coding Stuff/Rust/planetside_discord_blurber/audio/fart.mp4").await {
-								        Ok(source) => source,
-								        Err(why) => {
-								            println!("Err starting source: {:?}", why);
-											continue;
-								        }
-								    };
-
-                                    handler.play_source(source);
-                                } else {
-                                    println!("Could not play source on event");
-                                }
-                            }
-                            &(_, _, char_id) if char_id == death.character_id => {
-                                // Play kill sound
-                            }
-                            _ => (),
-                        }
-                    }
-                }
-                Event::VehicleDestroy(_) => {
-                    print!("vehicle destroy");
-                }
-                Event::PlayerLogin(_) => (),
-                Event::PlayerLogout(_) => (),
-                _ => {
-                    println!("{:?}", &event);
-                }
-            }
+            handle_event(&event, &event_patterns, &manager).await
         }
     });
 
     client
+}
+
+async fn handle_event(
+    event: &Event,
+    event_patterns: &Arc<Mutex<HashMap<u64, u64>>>,
+    manager: &Arc<Songbird>,
+) {
+    match &event {
+        // Revive GEs
+        Event::GainExperience(GainExperience {
+            experience_id: 7 | 53,
+            character_id,
+            other_id,
+            ..
+        }) => {
+            let patterns = event_patterns.lock().await;
+            if let Some(guild_id) = patterns.get(character_id) {
+                // Play revived teammate sound
+                play_random_sound("revive_teammate", guild_id, manager).await
+            } else if let Some(guild_id) = patterns.get(other_id) {
+                // Play get revived sound
+                play_random_sound("get_revived", guild_id, manager).await
+            }
+        }
+        Event::Death(death) => {
+            let patterns = event_patterns.lock().await;
+            if let Some(guild_id) = patterns.get(&death.character_id) {
+                if death.character_id == death.attacker_character_id {
+                    play_random_sound("suicide", guild_id, manager).await
+                } else {
+                    play_random_sound("death", guild_id, manager).await
+                }
+            } else if let Some(guild_id) = patterns.get(&death.attacker_character_id) {
+                play_random_sound("kill", guild_id, manager).await
+            }
+        }
+        Event::VehicleDestroy(vd) => {
+            let patterns = event_patterns.lock().await;
+            if let Some(guild_id) = patterns.get(&vd.character_id) {
+                if vd.character_id == vd.attacker_character_id {
+                    play_random_sound("destroy_own_vehicle", guild_id, manager).await
+                } else {
+                    play_random_sound("destroy_vehicle", guild_id, manager).await
+                }
+            }
+        }
+        Event::PlayerLogin(login) => {
+            let patterns = event_patterns.lock().await;
+            if let Some(guild_id) = patterns.get(&login.character_id) {
+                play_random_sound("login", guild_id, manager).await
+            }
+        }
+        Event::PlayerLogout(logout) => {
+            let patterns = event_patterns.lock().await;
+            if let Some(guild_id) = patterns.get(&logout.character_id) {
+                play_random_sound("logout", guild_id, manager).await
+            }
+        }
+        _ => {
+            println!("{:?}", &event);
+        } // Bastion Pull: https://discord.com/channels/251073753759481856/451032574538547201/780538521492389908
+          // Event::ItemAdded => {
+          //     let patterns = event_patterns.lock().await;
+          //     for pattern in patterns.iter() {
+          //         match pattern {
+          //             &(_, _, char_id)
+          //                 if char_id == ia.character_id
+          //                     && ia.context == "GuildBankWithdrawal"
+          //                     && ia.item_id == 6008913 => {}
+          //         }
+          //     }
+          // }
+    }
+}
+
+async fn play_random_sound(sound_category: &str, guild_id: &u64, manager: &Arc<Songbird>) {
+    if let Some(handler_lock) = manager.get(*guild_id) {
+        let mut handler = handler_lock.lock().await;
+
+        let pwd = env::current_dir().expect("Could not get pwd.");
+        let pwd = pwd.display();
+        let category_path = format!("{}/voicepacks/crashmore/{}", pwd, sound_category);
+        let paths = std::fs::read_dir(category_path).unwrap();
+        let file = paths.choose(&mut rand::thread_rng()).unwrap().unwrap();
+        let source = match songbird::ffmpeg(file.path()).await {
+            Ok(source) => source,
+            Err(why) => {
+                println!("Err starting source: {:?}", why);
+                return;
+            }
+        };
+
+        handler.play_source(source);
+    } else {
+        println!("Could not play source on event");
+    }
 }
 
 struct ESSClient;
@@ -185,7 +243,7 @@ impl TypeMapKey for ESSClient {
 struct EventPatterns;
 
 impl TypeMapKey for EventPatterns {
-    type Value = Arc<Mutex<Vec<(u64, u64, u64)>>>;
+    type Value = Arc<Mutex<HashMap<u64, u64>>>;
 }
 
 #[tokio::main]
@@ -193,25 +251,8 @@ async fn main() {
     // load dev environment vars
     dotenv().ok();
 
-    // Build the initial patterns from event patterns file
-    let event_patterns = if let Ok(content) = std::fs::read_to_string("./commands/event_patterns") {
-        let lines = content.split("\n");
-
-        let mut event_patterns: Vec<(u64, u64, u64)> = vec![];
-        for line in lines {
-            let mut split_line = line.split(",");
-            let guild_id = split_line.next().unwrap().parse::<u64>().unwrap();
-            let channel_id = split_line.next().unwrap().parse::<u64>().unwrap();
-            let character_id = split_line.next().unwrap().parse::<u64>().unwrap();
-            event_patterns.push((guild_id, channel_id, character_id));
-        }
-        event_patterns
-    } else {
-        vec![]
-    };
-
-    let shared_event_patterns = Arc::new(Mutex::new(event_patterns));
-    let client_data_event_patterns = shared_event_patterns.clone();
+    let event_patterns = Arc::new(Mutex::new(HashMap::new()));
+    let data_event_patterns = event_patterns.clone();
 
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("BOT_TOKEN").expect("Expected a token in the environment");
@@ -234,8 +275,7 @@ async fn main() {
             .expect("Unable to get songbird manager");
 
         // Init the ESS and start handling events
-
-        task::spawn(async { init_ess(shared_event_patterns, songbird_manager).await })
+        task::spawn(async { init_ess(event_patterns, songbird_manager).await })
             .await
             .expect("Could not initialize ESS client")
     };
@@ -243,7 +283,7 @@ async fn main() {
     {
         let mut data = client.data.write().await;
         data.insert::<ESSClient>(ess_client);
-        data.insert::<EventPatterns>(client_data_event_patterns)
+        data.insert::<EventPatterns>(data_event_patterns)
     }
 
     // Finally, start a single shard, and start listening to events.
