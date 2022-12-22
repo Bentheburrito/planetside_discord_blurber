@@ -25,6 +25,9 @@ use tokio::task;
 
 struct Handler;
 
+// a killing spree ends after this amount of seconds of no kills
+const KILLING_SPREE_INTERVAL: i64 = 12;
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -130,8 +133,9 @@ async fn init_ess(
     let mut event_receiver = client.connect().await.expect("Could not connect to ESS");
 
     task::spawn(async move {
+        let mut killing_sprees = HashMap::new();
         while let Some(event) = event_receiver.recv().await {
-            handle_event(&event, &event_patterns, &manager).await
+            handle_event(&event, &event_patterns, &manager, &mut killing_sprees).await
         }
     });
 
@@ -142,6 +146,7 @@ async fn handle_event(
     event: &Event,
     event_patterns: &Arc<Mutex<HashMap<u64, u64>>>,
     manager: &Arc<Songbird>,
+    killing_sprees: &mut HashMap<u64, (u16, u32)>,
 ) {
     match &event {
         // Revive GEs
@@ -153,10 +158,8 @@ async fn handle_event(
         }) => {
             let patterns = event_patterns.lock().await;
             if let Some(guild_id) = patterns.get(character_id) {
-                // Play revived teammate sound
                 play_random_sound("revive_teammate", guild_id, manager).await
             } else if let Some(guild_id) = patterns.get(other_id) {
-                // Play get revived sound
                 play_random_sound("get_revived", guild_id, manager).await
             }
         }
@@ -169,7 +172,36 @@ async fn handle_event(
                     play_random_sound("death", guild_id, manager).await
                 }
             } else if let Some(guild_id) = patterns.get(&death.attacker_character_id) {
-                play_random_sound("kill", guild_id, manager).await
+                let kill_category = match killing_sprees.get(&death.attacker_character_id) {
+                    Some((spree_count, timestamp))
+                        if *timestamp
+                            > (death.timestamp.timestamp() - KILLING_SPREE_INTERVAL) as u32 =>
+                    {
+                        let spree_count = spree_count + 1;
+                        killing_sprees.insert(
+                            death.attacker_character_id,
+                            (spree_count, death.timestamp.timestamp() as u32),
+                        );
+                        match spree_count {
+                            1 => "kill",
+                            2 => "kill_double",
+                            3 => "kill_triple",
+                            4 => "kill_quad",
+                            _ => "kill_penta",
+                        }
+                    }
+                    _ => {
+                        println!("no spree count entry");
+
+                        killing_sprees.insert(
+                            death.attacker_character_id,
+                            (1, death.timestamp.timestamp() as u32),
+                        );
+                        "kill"
+                    }
+                };
+                println!("category: {}", kill_category);
+                play_random_sound(kill_category, guild_id, manager).await
             }
         }
         Event::VehicleDestroy(vd) => {
