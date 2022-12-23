@@ -8,7 +8,9 @@ use serenity::model::prelude::interaction::application_command::{
     ApplicationCommandInteraction, CommandDataOption,
 };
 use serenity::prelude::Context;
+use tokio::sync::mpsc;
 
+use crate::events::handle_event;
 use crate::EventPatterns;
 
 pub async fn run(
@@ -35,7 +37,7 @@ pub async fn run(
             let character_name = value_string.trim_matches('"');
 
             let value_string = voicepack.to_string();
-            let voicepack = value_string.trim_matches('"');
+            let voicepack = value_string.trim_matches('"').to_string();
 
             let guild_id = match interaction.guild_id {
                 Some(guild_id) => guild_id,
@@ -113,10 +115,26 @@ pub async fn run(
                     // TODO: Add a check to make sure someone in this guild isn't using the bot already, instead of
                     // just overwriting with insert().
 
-                    patterns
-                        .lock()
-                        .await
-                        .insert(character_id, (guild.id.0, voicepack.to_string()));
+                    let (tx, mut rx) = mpsc::channel(1000);
+
+                    tokio::task::spawn(async move {
+                        let mut spree_count = 0;
+                        let mut spree_timestamp = 0;
+                        while let Some(event) = rx.recv().await {
+                            handle_event(
+                                &event,
+                                &character_id,
+                                &guild_id.0,
+                                &mut spree_count,
+                                &mut spree_timestamp,
+                                &voicepack,
+                                &manager,
+                            )
+                            .await
+                        }
+                    });
+
+                    patterns.lock().await.insert(character_id, tx);
 
                     return format!(
                         "Successfully joined voice channel, listening to events from {} (ID {})",
