@@ -15,6 +15,7 @@ use serenity::async_trait;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
+use serenity::model::prelude::command::Command;
 use serenity::model::prelude::Activity;
 use serenity::prelude::*;
 use songbird::SerenityInit;
@@ -68,15 +69,27 @@ impl EventHandler for Handler {
                 .expect("GUILD_ID must be an integer"),
         );
 
-        let commands = GuildId::set_application_commands(&guild_id, &ctx.http, |commands| {
-            commands
-                .create_application_command(|command| commands::ping::register(command))
-                .create_application_command(|command| commands::track::register(command))
-        })
-        .await;
+        let is_prod = env::var("PROD").is_ok();
+
+        let commands = if is_prod {
+            Command::set_global_application_commands(&ctx.http, |commands| {
+                commands
+                    .create_application_command(|command| commands::ping::register(command))
+                    .create_application_command(|command| commands::track::register(command))
+            })
+            .await
+        } else {
+            GuildId::set_application_commands(&guild_id, &ctx.http, |commands| {
+                commands
+                    .create_application_command(|command| commands::ping::register(command))
+                    .create_application_command(|command| commands::track::register(command))
+            })
+            .await
+        };
 
         println!(
-            "I now have the following guild slash commands: {:#?}",
+            "I now have the following {} slash commands: {:#?}",
+            if is_prod { "global" } else { "guild" },
             commands
                 .unwrap_or(vec![])
                 .iter()
@@ -84,16 +97,6 @@ impl EventHandler for Handler {
                 .collect::<Vec<String>>()
                 .join(", ")
         );
-
-        // let guild_command = Command::create_global_application_command(&ctx.http, |command| {
-        //     commands::wonderful_command::register(command)
-        // })
-        // .await;
-
-        // println!(
-        //     "I created the following global slash command: {:#?}",
-        //     guild_command
-        // );
     }
 }
 
@@ -115,7 +118,8 @@ async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> Re
             EventNames::GainExperienceId(7),  // Revive
             EventNames::GainExperienceId(53), // Squad Revive
         ])),
-        characters: Some(CharacterSubscription::Ids(vec![5428713425545165425])),
+        // characters: Some(CharacterSubscription::Ids(vec![5428713425545165425])),
+        characters: Some(CharacterSubscription::All),
         worlds: Some(WorldSubscription::All),
         logical_and_characters_with_worlds: Some(false),
         service: Service::Event,
