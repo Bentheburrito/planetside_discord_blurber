@@ -10,7 +10,9 @@ use auraxis::realtime::{
     event::Event,
 };
 use dotenv::dotenv;
+use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
+use rand::SeedableRng;
 use serenity::async_trait;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::gateway::Ready;
@@ -182,25 +184,27 @@ async fn handle_event(
                             death.attacker_character_id,
                             (spree_count, death.timestamp.timestamp() as u32),
                         );
-                        match spree_count {
-                            1 => "kill",
-                            2 => "kill_double",
-                            3 => "kill_triple",
-                            4 => "kill_quad",
+                        match (spree_count, death.is_headshot) {
+                            (1, true) => "kill_headshot",
+                            (1, _) => "kill",
+                            (2, _) => "kill_double",
+                            (3, _) => "kill_triple",
+                            (4, _) => "kill_quad",
                             _ => "kill_penta",
                         }
                     }
                     _ => {
-                        println!("no spree count entry");
-
                         killing_sprees.insert(
                             death.attacker_character_id,
                             (1, death.timestamp.timestamp() as u32),
                         );
-                        "kill"
+                        if death.is_headshot {
+                            "kill_headshot"
+                        } else {
+                            "kill"
+                        }
                     }
                 };
-                println!("category: {}", kill_category);
                 play_random_sound(kill_category, guild_id, manager).await
             }
         }
@@ -249,18 +253,30 @@ async fn play_random_sound(sound_category: &str, guild_id: &u64, manager: &Arc<S
 
         let pwd = env::current_dir().expect("Could not get pwd.");
         let pwd = pwd.display();
-        let category_path = format!("{}/voicepacks/crashmore/{}", pwd, sound_category);
-        let paths = std::fs::read_dir(category_path).unwrap();
-        let file = paths.choose(&mut rand::thread_rng()).unwrap().unwrap();
-        let source = match songbird::ffmpeg(file.path()).await {
-            Ok(source) => source,
-            Err(why) => {
-                println!("Err starting source: {:?}", why);
-                return;
-            }
-        };
+        let category_path = format!("{}/voicepacks/crashmore/{}.txt", pwd, sound_category);
+        let category_content = std::fs::read_to_string(category_path.clone()).expect(
+            format!(
+                "Could not read track names from category file: {}",
+                category_path
+            )
+            .as_str(),
+        );
+        let track_names = category_content.split("\n");
+        // Track names file could be empty, so do nothing if None
+        let mut rng: StdRng = SeedableRng::from_entropy();
+        if let Some(random_track_name) = track_names.choose(&mut rng) {
+            let random_track_path =
+                format!("{}/voicepacks/crashmore/tracks/{}", pwd, random_track_name);
+            let source = match songbird::ffmpeg(random_track_path).await {
+                Ok(source) => source,
+                Err(why) => {
+                    println!("Err starting source: {:?}", why);
+                    return;
+                }
+            };
 
-        handler.play_source(source);
+            handler.play_source(source);
+        }
     } else {
         println!("Could not play source on event");
     }
