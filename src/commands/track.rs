@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, fs};
 
 use auraxis::api::client::{ApiClient, ApiClientConfig};
 use auraxis::api::{request::FilterType, CensusCollection};
@@ -16,15 +16,26 @@ pub async fn run(
     ctx: &Context,
     options: &[CommandDataOption],
 ) -> String {
-    match options.first() {
-        Some(&CommandDataOption {
-            ref name,
-            value: Some(ref value),
-            ..
-        }) if name == "character_name" => {
+    let mut options = options.iter();
+    match (options.next(), options.next()) {
+        (
+            Some(&CommandDataOption {
+                ref name,
+                value: Some(ref value),
+                ..
+            }),
+            Some(&CommandDataOption {
+                name: ref name2,
+                value: Some(ref voicepack),
+                ..
+            }),
+        ) if name == "character_name" && name2 == "voicepack" => {
             // For some reason, `value` has quotes surrounding it...
             let value_string = value.to_string();
             let character_name = value_string.trim_matches('"');
+
+            let value_string = voicepack.to_string();
+            let voicepack = value_string.trim_matches('"');
 
             let guild_id = match interaction.guild_id {
                 Some(guild_id) => guild_id,
@@ -102,7 +113,10 @@ pub async fn run(
                     // TODO: Add a check to make sure someone in this guild isn't using the bot already, instead of
                     // just overwriting with insert().
 
-                    patterns.lock().await.insert(character_id, guild.id.0);
+                    patterns
+                        .lock()
+                        .await
+                        .insert(character_id, (guild.id.0, voicepack.to_string()));
 
                     return format!(
                         "Successfully joined voice channel, listening to events from {} (ID {})",
@@ -127,6 +141,41 @@ pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicatio
                 .kind(CommandOptionType::String)
                 .min_length(3)
                 .required(true)
+        })
+        .create_option(|c| {
+            c.name("voicepack")
+                .description("Specify the voicepack you would like to use")
+                .kind(CommandOptionType::String)
+                .min_length(1)
+                .required(true);
+
+            // Read the /voicepacks dir and dynamically create options
+            // this is a monstrosity, I know. If only Rust had with statements...
+            let pwd = env::current_dir().expect("Could not get pwd.");
+            let pwd = pwd.display();
+
+            match fs::read_dir(format!("{}/voicepacks", pwd)) {
+                Ok(ls) => {
+                    for file in ls {
+                        if let Ok(file) = file {
+                            let filename = file.file_name();
+                            let filename = filename
+                                .to_str()
+                                .expect("Could not convert filename to str");
+
+                            if let Ok(file_type) = file.file_type() {
+                                if file_type.is_dir() && filename != "TEMPLATE" {
+                                    c.add_string_choice(filename, filename);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(why) => {
+                    panic!("I could not read the voicepacks dir: {:?}", why);
+                }
+            }
+            c
         })
 }
 

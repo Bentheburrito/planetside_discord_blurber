@@ -102,7 +102,7 @@ impl EventHandler for Handler {
 }
 
 async fn init_ess(
-    event_patterns: Arc<Mutex<HashMap<u64, u64>>>,
+    event_patterns: Arc<Mutex<HashMap<u64, (u64, String)>>>,
     manager: Arc<Songbird>,
 ) -> RealtimeClient {
     let sid = env::var("SERVICE_ID").expect("Expected a service ID in the environment");
@@ -146,7 +146,7 @@ async fn init_ess(
 
 async fn handle_event(
     event: &Event,
-    event_patterns: &Arc<Mutex<HashMap<u64, u64>>>,
+    event_patterns: &Arc<Mutex<HashMap<u64, (u64, String)>>>,
     manager: &Arc<Songbird>,
     killing_sprees: &mut HashMap<u64, (u16, u32)>,
 ) {
@@ -247,13 +247,17 @@ async fn handle_event(
     }
 }
 
-async fn play_random_sound(sound_category: &str, guild_id: &u64, manager: &Arc<Songbird>) {
+async fn play_random_sound(
+    sound_category: &str,
+    (guild_id, voicepack): &(u64, String),
+    manager: &Arc<Songbird>,
+) {
     if let Some(handler_lock) = manager.get(*guild_id) {
         let mut handler = handler_lock.lock().await;
 
         let pwd = env::current_dir().expect("Could not get pwd.");
         let pwd = pwd.display();
-        let category_path = format!("{}/voicepacks/crashmore/{}.txt", pwd, sound_category);
+        let category_path = format!("{}/voicepacks/{}/{}.txt", pwd, voicepack, sound_category);
         let category_content = std::fs::read_to_string(category_path.clone()).expect(
             format!(
                 "Could not read track names from category file: {}",
@@ -261,7 +265,7 @@ async fn play_random_sound(sound_category: &str, guild_id: &u64, manager: &Arc<S
             )
             .as_str(),
         );
-        let track_names = category_content.split("\n");
+        let track_names = category_content.split("\n").filter(|name| *name != "");
         // Track names file could be empty, so do nothing if None
         let mut rng: StdRng = SeedableRng::from_entropy();
         if let Some(random_track_name) = track_names.choose(&mut rng) {
@@ -291,7 +295,7 @@ impl TypeMapKey for ESSClient {
 struct EventPatterns;
 
 impl TypeMapKey for EventPatterns {
-    type Value = Arc<Mutex<HashMap<u64, u64>>>;
+    type Value = Arc<Mutex<HashMap<u64, (u64, String)>>>;
 }
 
 #[tokio::main]
