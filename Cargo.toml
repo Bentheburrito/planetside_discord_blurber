@@ -8,11 +8,14 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
 dotenv = "0.15.0"
-songbird = "0.3.0"
 auraxis = { git = "https://github.com/AnotherGenZ/auraxis-rs" }
 rand = "0.8.5"
 
+[dependencies.songbird]
+features = ["builtin-queue"]
+version = "0.3.0"
+
 [dependencies.serenity]
 default-features = false
-features = ["builder", "cache", "client", "gateway", "http", "model", "utils", "rustls_backend"]
+features = ["builder", "cache", "client", "gateway", "http", "model", "utils", "rustls_backend", "voice"]
 version = "0.11"

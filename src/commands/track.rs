@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::{env, fs};
 
 use auraxis::api::client::{ApiClient, ApiClientConfig};
@@ -9,9 +10,12 @@ use serenity::model::prelude::interaction::application_command::{
 };
 use serenity::prelude::Context;
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 
-use crate::events::handle_event;
+use crate::events::{handle_event, OnLogout};
 use crate::EventPatterns;
+
+const TIMEOUT_MINS: u8 = 5;
 
 pub async fn run(
     interaction: &ApplicationCommandInteraction,
@@ -111,30 +115,84 @@ pub async fn run(
                         .get::<EventPatterns>()
                         .cloned()
                         .expect("Unable to get patterns in /track");
+                    let mut patterns = patterns.lock().await;
 
-                    // TODO: Add a check to make sure someone in this guild isn't using the bot already, instead of
-                    // just overwriting with insert().
+                    // Make sure someone in this guild isn't using the bot already
+                    if patterns.contains_key(&character_id) {
+                        return format!(
+                            "
+						It looks like someone else in this server is currently tracking a character - if they aren't 
+						tracking them anymore, ask them to /untrack their character, or wait for the tracking to timeout 
+						({} minutes of no events).
+						",
+                            TIMEOUT_MINS
+                        )
+                        .to_string();
+                    }
 
                     let (tx, mut rx) = mpsc::channel(1000);
 
+                    let interaction_channel_id = interaction.channel_id.clone();
+                    let http = ctx.http.clone();
+                    let char_name = character_name.to_string();
+                    let data_clone = ctx.data.clone();
                     tokio::task::spawn(async move {
                         let mut spree_count = 0;
                         let mut spree_timestamp = 0;
-                        while let Some(event) = rx.recv().await {
-                            handle_event(
-                                &event,
-                                &character_id,
-                                &guild_id.0,
-                                &mut spree_count,
-                                &mut spree_timestamp,
-                                &voicepack,
-                                &manager,
-                            )
-                            .await
+                        let mut is_idle = false;
+                        while !is_idle {
+                            let event =
+                                timeout(Duration::from_secs(60 * TIMEOUT_MINS as u64), rx.recv())
+                                    .await;
+                            if let Err(_) = event {
+                                is_idle = true;
+
+                                let _ = interaction_channel_id.send_message(&http, |m| {
+                                    m.content(format!(
+                                        "No events detected for {} after {} minutes, disconnecting now.",
+                                        char_name,
+										TIMEOUT_MINS
+                                    ))
+                                }).await;
+                                let _ = manager.leave(guild_id).await;
+
+                                let data = data_clone.write().await;
+                                let patterns = data
+                                    .get::<EventPatterns>()
+                                    .cloned()
+                                    .expect("Unable to get patterns in /track");
+                                let mut patterns = patterns.lock().await;
+                                patterns.remove(&character_id);
+                            } else if let Ok(Some(event)) = event {
+                                let logout_handler = OnLogout {
+                                    character_id: character_id.clone(),
+                                    channel_id: interaction_channel_id.clone(),
+                                    guild_id: guild_id.0.clone(),
+                                    http: http.clone(),
+                                    char_name: char_name.clone(),
+                                    manager: manager.clone(),
+                                    data_clone: data_clone.clone(),
+                                };
+                                handle_event(
+                                    &event,
+                                    &character_id,
+                                    &guild_id.0,
+                                    &mut spree_count,
+                                    &mut spree_timestamp,
+                                    &voicepack,
+                                    &manager,
+                                    logout_handler,
+                                )
+                                .await;
+                            } else {
+                                // We got Ok(None), which most likely means the player logged out and the tx was closed.
+                                // So, we should set is_idle = true to end the loop and thus the thread.
+                                is_idle = true;
+                            }
                         }
                     });
 
-                    patterns.lock().await.insert(character_id, tx);
+                    patterns.insert(character_id, tx);
 
                     return format!(
                         "Successfully joined voice channel, listening to events from {} (ID {})",
