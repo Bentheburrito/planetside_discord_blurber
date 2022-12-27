@@ -172,7 +172,6 @@ pub struct OnLogout {
 #[async_trait]
 impl VoiceEventHandler for OnLogout {
     async fn act(&self, _: &EventContext<'_>) -> Option<songbird::Event> {
-        println!("detected end of logout track!");
         let _ = self
             .channel_id
             .send_message(&self.http, |m| {
@@ -190,7 +189,7 @@ impl VoiceEventHandler for OnLogout {
             .expect("Unable to get patterns in /track");
         let mut patterns = patterns.lock().await;
         patterns.remove(&self.character_id);
-        println!("Should have removed the pattern on logout now");
+
         None
     }
 }
