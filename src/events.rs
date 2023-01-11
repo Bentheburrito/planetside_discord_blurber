@@ -17,6 +17,7 @@ use std::env;
 use std::sync::Arc;
 
 use crate::EventPatterns;
+use crate::WeaponIds;
 
 // a killing spree ends after this amount of seconds of no kills
 const KILLING_SPREE_INTERVAL: i64 = 12;
@@ -102,18 +103,32 @@ pub async fn handle_event(
                 }
             }
         }
-        _ => (), // Bastion Pull: https://discord.com/channels/251073753759481856/451032574538547201/780538521492389908
-                 // Event::ItemAdded => {
-                 //     let patterns = event_patterns.lock().await;
-                 //     for pattern in patterns.iter() {
-                 //         match pattern {
-                 //             &(_, _, char_id)
-                 //                 if char_id == ia.character_id
-                 //                     && ia.context == "GuildBankWithdrawal"
-                 //                     && ia.item_id == 6008913 => {}
-                 //         }
-                 //     }
-                 // }
+        // Bastion Pull: https://discord.com/channels/251073753759481856/451032574538547201/780538521492389908
+        Event::ItemAdded(ia) => {
+            println!("itemadded received");
+            if ia.character_id == 5428713425545165425 {
+                println!("ITEMADDED for SNOWFUL");
+            }
+            if &ia.character_id == char_id {
+                let data = logout_handler.data_clone.read().await;
+                let weapon_ids = data.get::<WeaponIds>().unwrap();
+                println!("WEAPON IDS: {:?}", weapon_ids);
+                println!("THIS ITEM ID: {:?}", ia.item_id);
+
+                if ia.context == "GuildBankWithdrawal" && ia.item_id == 6008913 {
+                    println!("playing bastion pull");
+                    play_random_sound("bastion_pull", guild_id, voicepack, manager).await;
+                } else if weapon_ids.contains(&ia.item_id) {
+                    println!("playing unlock weapon");
+                    play_random_sound("unlock_weapon", guild_id, voicepack, manager).await;
+                } else {
+                    // Currently "unlock_camo" is not implemented
+                    println!("playing unlock item");
+                    play_random_sound("unlock_any", guild_id, voicepack, manager).await;
+                }
+            }
+        }
+        _ => (),
     }
 }
 

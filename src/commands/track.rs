@@ -103,16 +103,18 @@ async fn do_run(
 
     let character_id = match query.await {
         Ok(response) => {
-            let character_id_str = response
+            let maybe_character_id = response
                 .items
                 .first()
-                .unwrap()
-                .get("character_id")
-                .unwrap()
-                .as_str()
-                .unwrap();
+                .and_then(|v| v.get("character_id"))
+                .and_then(|v| v.as_str())
+                .and_then(|c| c.parse::<u64>().ok());
 
-            character_id_str.parse::<u64>().unwrap()
+            if let Some(character_id) = maybe_character_id {
+                character_id
+            } else {
+                return "Could not get character ID from Census response.".to_string();
+            }
         }
         Err(err) => return format!("Could not query the Census: {:?}", err).to_string(),
     };
@@ -136,9 +138,9 @@ async fn do_run(
     if patterns.contains_key(&character_id) {
         return format!(
             "
-				It looks like someone else in this server is currently tracking a character - if they aren't 
-				tracking them anymore, ask them to /untrack their character, or wait for the tracking to timeout 
-				({} minutes of no events).
+				It looks like someone else in this server is currently tracking a character - you must wait for them
+				to logout or for their tracking session to expire ({} minutes of no events) before starting a new 
+				tracking session in this server.
 				",
             TIMEOUT_MINS
         )

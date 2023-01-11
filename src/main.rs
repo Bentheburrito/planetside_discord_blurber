@@ -1,6 +1,7 @@
 mod commands;
 mod events;
 
+use auraxis::api::client::{ApiClient, ApiClientConfig};
 use auraxis::realtime::event::EventNames;
 use auraxis::realtime::subscription::{
     CharacterSubscription, EventSubscription, SubscriptionSettings, WorldSubscription,
@@ -167,7 +168,7 @@ fn get_character_id(event: &Event) -> Option<u64> {
         Event::GainExperience(ge) => Some(ge.character_id),
         Event::PlayerFacilityCapture(pfc) => Some(pfc.character_id),
         Event::PlayerFacilityDefend(pfd) => Some(pfd.character_id),
-        Event::ItemAdded => None,
+        Event::ItemAdded(ia) => Some(ia.character_id),
         Event::AchievementEarned => None,
         Event::SkillAdded => None,
         Event::BattleRankUp => None,
@@ -188,6 +189,51 @@ fn get_other_id(event: &Event) -> Option<u64> {
         Event::GainExperience(ge) => Some(ge.other_id),
         _ => None,
     }
+}
+
+// const WEAPON_ID_URL: &str = "https://census.lithafalcon.cc/get/ps2/item?code_factory_name=Weapon&c:show=item_id&c:limit=5000";
+async fn get_weapon_ids() -> Vec<u64> {
+    // Fetch character
+    let sid = env::var("SERVICE_ID").expect("Expected a service ID in the environment");
+    let mut client_config = ApiClientConfig::default();
+    client_config.service_id = Some(sid);
+    client_config.api_url = Some(String::from("https://census.lithafalcon.cc"));
+    client_config.environment = Some(String::from("ps2"));
+
+    let client = ApiClient::new(client_config);
+
+    let query = client
+        .get("item")
+        .limit(5000)
+        .show("item_id")
+        .filter(
+            "code_factory_name",
+            auraxis::api::request::FilterType::EqualTo,
+            "Weapon",
+        )
+        .build();
+
+    match query.await {
+        Ok(response) => response
+            .items
+            .iter()
+            .map(|val| {
+                val.get("item_id")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            })
+            .collect::<Vec<u64>>(),
+        Err(err) => panic!("Could not query Sanctuary Census for weapon IDs: {}", err),
+    }
+}
+
+struct WeaponIds;
+
+impl TypeMapKey for WeaponIds {
+    type Value = Arc<Vec<u64>>;
 }
 
 struct ESSClient;
@@ -235,11 +281,16 @@ async fn main() {
             .await
             .expect("Could not initialize ESS client")
     };
+
+    let weapon_ids = get_weapon_ids().await;
+    println!("WEAPON IDS: {:?}", weapon_ids);
+
     // Put our ESS client/RealtimeClient and event patterns in the client data.
     {
         let mut data = client.data.write().await;
         data.insert::<ESSClient>(ess_client);
-        data.insert::<EventPatterns>(data_event_patterns)
+        data.insert::<EventPatterns>(data_event_patterns);
+        data.insert::<WeaponIds>(Arc::new(weapon_ids));
     }
 
     // Finally, start a single shard, and start listening to events.
