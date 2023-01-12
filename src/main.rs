@@ -130,7 +130,6 @@ async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> Re
 }
 
 async fn handle_event(event: Event, event_patterns: &Arc<Mutex<HashMap<u64, Sender<Event>>>>) {
-    println!("GOT EVENT: {:?}", event);
     let patterns = event_patterns.lock().await;
     let character_ids = vec![
         get_character_id(&event),

@@ -104,25 +104,19 @@ pub async fn handle_event(
             }
         }
         // Bastion Pull: https://discord.com/channels/251073753759481856/451032574538547201/780538521492389908
+        // Currently "unlock_camo" is not implemented
         Event::ItemAdded(ia) => {
-            println!("itemadded received");
-            if ia.character_id == 5428713425545165425 {
-                println!("ITEMADDED for SNOWFUL");
-            }
             if &ia.character_id == char_id {
                 let data = logout_handler.data_clone.read().await;
                 let weapon_ids = data.get::<WeaponIds>().unwrap();
-                println!("THIS ITEM ID: {:?}", ia.item_id);
 
-                if ia.context == "GuildBankWithdrawal" && ia.item_id == 6008913 {
-                    println!("playing bastion pull");
+                if ia.context == "CaptureTheFlag.TakeFlag" {
+                    play_random_sound("ctf_flag_take", guild_id, voicepack, manager).await;
+                } else if ia.context == "GuildBankWithdrawal" && ia.item_id == 6008913 {
                     play_random_sound("bastion_pull", guild_id, voicepack, manager).await;
                 } else if weapon_ids.contains(&ia.item_id) {
-                    println!("playing unlock weapon");
                     play_random_sound("unlock_weapon", guild_id, voicepack, manager).await;
                 } else {
-                    // Currently "unlock_camo" is not implemented
-                    println!("playing unlock item");
                     play_random_sound("unlock_any", guild_id, voicepack, manager).await;
                 }
             }
@@ -131,6 +125,7 @@ pub async fn handle_event(
     }
 }
 
+// Plays a random track from the given category in the VC, returns Option<TrackHandle> if it has successfully started
 async fn play_random_sound(
     sound_category: &str,
     guild_id: &u64,
