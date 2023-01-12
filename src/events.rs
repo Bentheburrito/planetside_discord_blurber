@@ -112,7 +112,6 @@ pub async fn handle_event(
             if &ia.character_id == char_id {
                 let data = logout_handler.data_clone.read().await;
                 let weapon_ids = data.get::<WeaponIds>().unwrap();
-                println!("WEAPON IDS: {:?}", weapon_ids);
                 println!("THIS ITEM ID: {:?}", ia.item_id);
 
                 if ia.context == "GuildBankWithdrawal" && ia.item_id == 6008913 {

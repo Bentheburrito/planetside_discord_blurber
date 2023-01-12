@@ -98,7 +98,7 @@ dependencies = [
 [[package]]
 name = "auraxis"
 version = "0.1.0"
-source = "git+https://github.com/Bentheburrito/auraxis-rs?branch=item-added-struct#baf60d2013a01d1ff61fc60a7896a4b52286e687"
+source = "git+https://github.com/Bentheburrito/auraxis-rs?branch=temp-my-new-features-for-blurber#9ac04660afcc385827e09e3e54ee914726f502ca"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -120,7 +120,7 @@ dependencies = [
 [[package]]
 name = "auraxis_macros"
 version = "0.1.0"
-source = "git+https://github.com/Bentheburrito/auraxis-rs?branch=item-added-struct#baf60d2013a01d1ff61fc60a7896a4b52286e687"
+source = "git+https://github.com/Bentheburrito/auraxis-rs?branch=temp-my-new-features-for-blurber#9ac04660afcc385827e09e3e54ee914726f502ca"
 dependencies = [
  "darling",
  "quote",

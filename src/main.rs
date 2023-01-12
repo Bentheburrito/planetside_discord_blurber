@@ -2,10 +2,7 @@ mod commands;
 mod events;
 
 use auraxis::api::client::{ApiClient, ApiClientConfig};
-use auraxis::realtime::event::EventNames;
-use auraxis::realtime::subscription::{
-    CharacterSubscription, EventSubscription, SubscriptionSettings, WorldSubscription,
-};
+use auraxis::realtime::subscription::SubscriptionSettings;
 use auraxis::realtime::Service;
 use auraxis::realtime::{
     client::{RealtimeClient, RealtimeClientConfig},
@@ -110,25 +107,16 @@ async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> Re
     };
 
     let subscription = SubscriptionSettings {
-        event_names: Some(EventSubscription::Ids(vec![
-            EventNames::PlayerLogin,
-            EventNames::PlayerLogout,
-            EventNames::Death,
-            EventNames::VehicleDestroy,
-            EventNames::ItemAdded,
-            EventNames::GainExperienceId(7),  // Revive
-            EventNames::GainExperienceId(53), // Squad Revive
-        ])),
-        // characters: Some(CharacterSubscription::Ids(vec![5428713425545165425])),
-        characters: Some(CharacterSubscription::All),
-        worlds: Some(WorldSubscription::All),
-        logical_and_characters_with_worlds: Some(false),
+        event_names: None,
+        characters: None,
+        worlds: None, //Some(WorldSubscription::All),
+        logical_and_characters_with_worlds: None,
         service: Service::Event,
     };
 
     let mut client = RealtimeClient::new(config);
 
-    client.subscribe(subscription);
+    client.subscribe(subscription).await;
 
     let mut event_receiver = client.connect().await.expect("Could not connect to ESS");
 
@@ -142,6 +130,7 @@ async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> Re
 }
 
 async fn handle_event(event: Event, event_patterns: &Arc<Mutex<HashMap<u64, Sender<Event>>>>) {
+    println!("GOT EVENT: {:?}", event);
     let patterns = event_patterns.lock().await;
     let character_ids = vec![
         get_character_id(&event),
@@ -268,22 +257,13 @@ async fn main() {
     .register_songbird()
     .await
     .expect("Error creating client");
-    let ess_client = {
-        // let data = client.data.read().await;
 
-        // let songbird_manager = data
-        //     .get::<SongbirdKey>()
-        //     .cloned()
-        //     .expect("Unable to get songbird manager");
-
-        // Init the ESS and start handling events
-        task::spawn(async { init_ess(event_patterns).await })
-            .await
-            .expect("Could not initialize ESS client")
-    };
+    // Init the ESS and start handling events
+    let ess_client = task::spawn(async { init_ess(event_patterns).await })
+        .await
+        .expect("Could not initialize ESS client");
 
     let weapon_ids = get_weapon_ids().await;
-    println!("WEAPON IDS: {:?}", weapon_ids);
 
     // Put our ESS client/RealtimeClient and event patterns in the client data.
     {

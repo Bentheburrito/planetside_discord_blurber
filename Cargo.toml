@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
 dotenv = "0.15.0"
-auraxis = { git = "https://github.com/Bentheburrito/auraxis-rs", branch = "item-added-struct" }
+auraxis = { git = "https://github.com/Bentheburrito/auraxis-rs", branch = "temp-my-new-features-for-blurber" }
 rand = "0.8.5"
 reqwest = "0.11.13"
 

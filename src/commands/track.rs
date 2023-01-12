@@ -3,6 +3,12 @@ use std::{env, fs};
 
 use auraxis::api::client::{ApiClient, ApiClientConfig};
 use auraxis::api::{request::FilterType, CensusCollection};
+use auraxis::realtime::event::EventNames;
+use auraxis::realtime::subscription::{
+    CharacterSubscription, EventSubscription, SubscriptionSettings,
+};
+use auraxis::realtime::Service;
+use auraxis::CharacterID;
 use serenity::builder::CreateApplicationCommand;
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::{
@@ -13,7 +19,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use crate::events::{handle_event, OnLogout};
-use crate::EventPatterns;
+use crate::{ESSClient, EventPatterns};
 
 const TIMEOUT_MINS: u8 = 5;
 
@@ -119,15 +125,13 @@ async fn do_run(
         Err(err) => return format!("Could not query the Census: {:?}", err).to_string(),
     };
 
-    // ****leaving this commented out for now - auraxis-rs doesn't support adding subscriptions after ****
-    // ****starting the realtime client, so just subscribing to all character events for now in main.rs****
-    // let mut data = ctx.data.write().await;
-    // let ess_client = data.get_mut::<ESSClient>().unwrap();
-    // ess_client.subscribe(character_subscription(character_id));
+    let mut data = ctx.data.write().await;
+    let ess_client = data.get_mut::<ESSClient>().unwrap();
+    ess_client
+        .subscribe(character_subscription(character_id))
+        .await;
 
     // Add entry to cached patterns
-    let data = ctx.data.write().await;
-
     let patterns = data
         .get::<EventPatterns>()
         .cloned()
@@ -265,18 +269,20 @@ pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicatio
         })
 }
 
-// fn character_subscription(character_id: CharacterID) -> SubscriptionSettings {
-//     SubscriptionSettings {
-//         event_names: Some(EventSubscription::Ids(vec![
-//             EventNames::PlayerLogin,
-//             EventNames::PlayerLogout,
-//             EventNames::Death,
-//             EventNames::VehicleDestroy,
-//             EventNames::GainExperience,
-//         ])),
-//         characters: Some(CharacterSubscription::Ids(vec![character_id])),
-//         worlds: Some(WorldSubscription::All),
-//         logical_and_characters_with_worlds: Some(true),
-//         service: Service::Event,
-//     }
-// }
+fn character_subscription(character_id: CharacterID) -> SubscriptionSettings {
+    SubscriptionSettings {
+        event_names: Some(EventSubscription::Ids(vec![
+            EventNames::PlayerLogin,
+            EventNames::PlayerLogout,
+            EventNames::Death,
+            EventNames::VehicleDestroy,
+            EventNames::ItemAdded,
+            EventNames::GainExperienceId(7),  // Revive
+            EventNames::GainExperienceId(53), // Squad Revive
+        ])),
+        characters: Some(CharacterSubscription::Ids(vec![character_id])),
+        worlds: None,
+        logical_and_characters_with_worlds: None,
+        service: Service::Event,
+    }
+}
