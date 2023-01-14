@@ -25,25 +25,45 @@ use tokio::task;
 
 struct Handler;
 
+// When using EditMessage, the slash command's `run()` must call `interaction.deter()`.
+pub enum CommandResponse {
+    Message(String),
+    EditMessage(String),
+}
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(command) = interaction {
-            let content = match command.data.name.as_str() {
+            let command_response = match command.data.name.as_str() {
                 "ping" => commands::ping::run(&command.data.options),
                 "track" => commands::track::run(&command, &ctx, &command.data.options).await,
-                _ => "not implemented :(".to_string(),
+                _ => CommandResponse::Message("not implemented :(".to_string()),
             };
 
-            if let Err(why) = command
-                .create_interaction_response(&ctx.http, |response| {
-                    response
-                        .kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|message| message.content(content))
-                })
-                .await
-            {
-                println!("Cannot respond to slash command: {}", why);
+            match command_response {
+                CommandResponse::Message(content) => {
+                    if let Err(why) = command
+                        .create_interaction_response(&ctx.http, |response| {
+                            response
+                                .kind(InteractionResponseType::ChannelMessageWithSource)
+                                .interaction_response_data(|message| message.content(content))
+                        })
+                        .await
+                    {
+                        println!("Cannot respond to slash command: {}", why);
+                    }
+                }
+                CommandResponse::EditMessage(content) => {
+                    if let Err(why) = command
+                        .edit_original_interaction_response(&ctx.http, |response| {
+                            response.content(content)
+                        })
+                        .await
+                    {
+                        println!("Cannot edit response to slash command: {}", why);
+                    }
+                }
             }
         }
     }

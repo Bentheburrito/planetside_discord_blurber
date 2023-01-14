@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use crate::events::{handle_event, OnLogout};
-use crate::{ESSClient, EventPatterns};
+use crate::{CommandResponse, ESSClient, EventPatterns};
 
 const TIMEOUT_MINS: u8 = 5;
 
@@ -27,7 +27,7 @@ pub async fn run(
     interaction: &ApplicationCommandInteraction,
     ctx: &Context,
     options: &[CommandDataOption],
-) -> String {
+) -> CommandResponse {
     let mut options = options.iter();
     match (options.next(), options.next()) {
         (
@@ -49,9 +49,11 @@ pub async fn run(
             let value_string = voicepack.to_string();
             let voicepack = value_string.trim_matches('"').to_string();
 
-            do_run(interaction, ctx, character_name, voicepack).await
+            // Defer the interaction in case we take too long for a normal CHANNEL_MESSAGE_WITH_SOURCE
+            let _ = interaction.defer(&ctx.http).await;
+            CommandResponse::EditMessage(do_run(interaction, ctx, character_name, voicepack).await)
         }
-        _ => "Please provide a character name".to_string(),
+        _ => CommandResponse::Message("Please provide a character name".to_string()),
     }
 }
 
@@ -80,8 +82,7 @@ async fn do_run(
     let connect_to = match channel_id {
         Some(channel) => channel,
         None => {
-            return "Could not find your voice channel.
-			Make sure you're connected to a voice channel, and I have permission to join it."
+            return "Could not find your voice channel. Make sure you're connected to a voice channel, and I have permission to join it."
                 .to_string();
         }
     };
