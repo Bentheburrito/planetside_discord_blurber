@@ -1,10 +1,11 @@
-# Blurber - a Discord bot to enhance Planetside 2 gameplay
+# Blurber - a Discord bot to "enhance" your Planetside 2 experience
 
-This bot will play audio tracks in a voice channel based off actions you perform in game (kills, revives, stealing CTF
+This bot will play audio in a voice channel when you perform actions in game (kills, revives, stealing CTF
 conduits, etc).
-I made this to play with [I Think You Should Leave's Detective Crashmore](https://www.youtube.com/watch?v=zieppd4yABQ)
+I originally made this to play with [I Think You Should Leave's Detective Crashmore](https://www.youtube.com/watch?v=zieppd4yABQ)
 voicelines to add some extra amusement to my usual PS2 shenanigans, but I made it modular enough so that other
-voicepacks can be added and used instead. If you want to add a voicepack, see the README in `voicepacks/`
+voicepacks can be added and used instead. If you want to add a voicepack, see the README in `voicepacks/`. Otherwise,
+keep reading to see how to use it with existing voicepacks.
 
 ## How to use
 
@@ -30,7 +31,8 @@ the issue.
 
 If you want to add a voicepack, see the README in `voicepacks/`
 
-If you want to add a voiceline category, here are the general steps (you'll need to know some Rust):
+If you want to add a voiceline category, here are the general steps (you'll need to have some programming/Rust
+knowledge):
 
 1. fork this repo
 2. add the empty category .txt file to all voicepacks (including `TEMPLATE`).
