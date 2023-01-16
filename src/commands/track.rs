@@ -79,12 +79,14 @@ async fn do_run(
         .get(&interaction.user.id)
         .and_then(|voice_state| voice_state.channel_id);
 
-    let connect_to = match channel_id {
-        Some(channel) => channel,
-        None => {
-            return "Could not find your voice channel. Make sure you're connected to a voice channel, and I have permission to join it."
-                .to_string();
-        }
+    let connect_to = if let Some(channel) = channel_id {
+        channel
+    } else {
+        return concat!(
+            "Could not find your voice channel. Make sure you're connected to a voice channel,",
+            "and I have permission to join it."
+        )
+        .to_string();
     };
 
     let manager = songbird::get(ctx)
@@ -141,23 +143,23 @@ async fn do_run(
 
     // Make sure someone in this guild isn't using the bot already
     if patterns.contains_key(&character_id) {
-        return format!(
-            "
-				It looks like someone else in this server is currently tracking a character - you must wait for them
-				to logout or for their tracking session to expire ({} minutes of no events) before starting a new 
-				tracking session in this server.
-				",
-            TIMEOUT_MINS
-        )
-        .to_string();
+        return format!("It looks like someone else in this server is currently tracking a character - you must wait for\
+ them to logout or for their tracking session to expire ({} minutes of no events) before starting a new tracking\
+ session in this server.", TIMEOUT_MINS).to_string();
     }
 
     let (tx, mut rx) = mpsc::channel(1000);
 
+    let success_message = format!(
+        "Successfully joined voice channel, listening to events from {} (ID {}), using voicepack '{}'",
+        character_name, character_id, voicepack
+    )
+    .to_string();
+
     let interaction_channel_id = interaction.channel_id.clone();
-    let http = ctx.http.clone();
     let char_name = character_name.to_string();
     let data_clone = ctx.data.clone();
+    let http = ctx.http.clone();
     tokio::task::spawn(async move {
         let mut spree_count = 0;
         let mut spree_timestamp = 0;
@@ -215,11 +217,7 @@ async fn do_run(
 
     patterns.insert(character_id, tx);
 
-    return format!(
-        "Successfully joined voice channel, listening to events from {} (ID {})",
-        character_name, character_id
-    )
-    .to_string();
+    return success_message;
 }
 
 pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {

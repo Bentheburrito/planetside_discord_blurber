@@ -1,6 +1,9 @@
+use auraxis::realtime::event::Death;
 use auraxis::realtime::event::GainExperience;
 
 use auraxis::realtime::event::Event;
+use auraxis::realtime::event::ItemAdded;
+use auraxis::realtime::event::VehicleDestroy;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
@@ -22,6 +25,89 @@ use crate::WeaponIds;
 // a killing spree ends after this amount of seconds of no kills
 const KILLING_SPREE_INTERVAL: i64 = 12;
 
+async fn handle_revive(ge: &GainExperience, char_id: &u64) -> Option<String> {
+    if ge.character_id == *char_id {
+        Some("revive_teammate".to_string())
+    } else if ge.other_id == *char_id {
+        Some("get_revived".to_string())
+    } else {
+        None
+    }
+}
+
+async fn handle_death(
+    death: &Death,
+    char_id: &u64,
+    spree_count: &mut u16,
+    spree_timestamp: &mut u32,
+) -> Option<String> {
+    if &death.character_id == char_id {
+        if death.character_id == death.attacker_character_id {
+            Some("suicide".to_string())
+        } else {
+            Some("death".to_string())
+        }
+    } else if &death.attacker_character_id == char_id {
+        let kill_category =
+            if *spree_timestamp > (death.timestamp.timestamp() - KILLING_SPREE_INTERVAL) as u32 {
+                *spree_count += 1;
+                match (*spree_count + 1, death.is_headshot) {
+                    (1, true) => "kill_headshot",
+                    (1, _) => "kill",
+                    (2, _) => "kill_double",
+                    (3, _) => "kill_triple",
+                    (4, _) => "kill_quad",
+                    _ => "kill_penta",
+                }
+            } else {
+                *spree_count = 1;
+                if death.is_headshot {
+                    "kill_headshot"
+                } else {
+                    "kill"
+                }
+            };
+
+        *spree_timestamp = death.timestamp.timestamp() as u32;
+        Some(kill_category.to_string())
+    } else {
+        None
+    }
+}
+
+async fn handle_vehicle_destroy(vd: &VehicleDestroy, char_id: &u64) -> Option<String> {
+    if &vd.character_id == char_id && vd.character_id == vd.attacker_character_id {
+        Some("destroy_own_vehicle".to_string())
+    } else if &vd.attacker_character_id == char_id {
+        Some("destroy_vehicle".to_string())
+    } else {
+        None
+    }
+}
+
+async fn handle_item_added(
+    ia: &ItemAdded,
+    char_id: &u64,
+    logout_handler: OnLogout,
+) -> Option<String> {
+    if &ia.character_id == char_id {
+        let data = logout_handler.data_clone.read().await;
+        let weapon_ids = data.get::<WeaponIds>().unwrap();
+
+        if ia.context == "CaptureTheFlag.TakeFlag" {
+            Some("ctf_flag_take".to_string())
+        } else if ia.context == "GuildBankWithdrawal" && ia.item_id == 6008913 {
+            Some("bastion_pull".to_string())
+        } else if weapon_ids.contains(&ia.item_id) {
+            Some("unlock_weapon".to_string())
+        } else {
+            Some("unlock_any".to_string())
+        }
+    } else {
+        None
+    }
+}
+
 pub async fn handle_event(
     event: &Event,
     char_id: &u64,
@@ -32,67 +118,18 @@ pub async fn handle_event(
     manager: &Arc<Songbird>,
     logout_handler: OnLogout,
 ) {
-    match &event {
+    let maybe_category = match &event {
         // Revive GEs
-        Event::GainExperience(GainExperience {
-            experience_id: 7 | 53,
-            character_id,
-            other_id,
-            ..
-        }) => {
-            if character_id == char_id {
-                play_random_sound("revive_teammate", guild_id, voicepack, manager).await;
-            } else if other_id == char_id {
-                play_random_sound("get_revived", guild_id, voicepack, manager).await;
+        Event::GainExperience(ge) => {
+            if ge.experience_id == 7 || ge.experience_id == 53 {
+                handle_revive(ge, char_id).await
+            } else {
+                None
             }
         }
-        Event::Death(death) => {
-            if &death.character_id == char_id {
-                if death.character_id == death.attacker_character_id {
-                    play_random_sound("suicide", guild_id, voicepack, manager).await;
-                } else {
-                    play_random_sound("death", guild_id, voicepack, manager).await;
-                }
-            } else if &death.attacker_character_id == char_id {
-                let kill_category = if *spree_timestamp
-                    > (death.timestamp.timestamp() - KILLING_SPREE_INTERVAL) as u32
-                {
-                    *spree_count += 1;
-                    match (*spree_count + 1, death.is_headshot) {
-                        (1, true) => "kill_headshot",
-                        (1, _) => "kill",
-                        (2, _) => "kill_double",
-                        (3, _) => "kill_triple",
-                        (4, _) => "kill_quad",
-                        _ => "kill_penta",
-                    }
-                } else {
-                    *spree_count = 1;
-                    if death.is_headshot {
-                        "kill_headshot"
-                    } else {
-                        "kill"
-                    }
-                };
-
-                *spree_timestamp = death.timestamp.timestamp() as u32;
-                play_random_sound(kill_category, guild_id, voicepack, manager).await;
-            }
-        }
-        Event::VehicleDestroy(vd) => {
-            if &vd.character_id == char_id {
-                if vd.character_id == vd.attacker_character_id {
-                    play_random_sound("destroy_own_vehicle", guild_id, voicepack, manager).await;
-                } else {
-                    play_random_sound("destroy_vehicle", guild_id, voicepack, manager).await;
-                }
-            }
-        }
-        Event::PlayerLogin(login) => {
-            if &login.character_id == char_id {
-                play_random_sound("login", guild_id, voicepack, manager).await;
-            }
-        }
+        Event::Death(death) => handle_death(death, char_id, spree_count, spree_timestamp).await,
+        Event::VehicleDestroy(vd) => handle_vehicle_destroy(vd, char_id).await,
+        Event::PlayerLogin(login) if &login.character_id == char_id => Some("login".to_string()),
         Event::PlayerLogout(logout) => {
             if &logout.character_id == char_id {
                 if let Some(handle) =
@@ -102,27 +139,16 @@ pub async fn handle_event(
                         handle.add_event(songbird::Event::Track(TrackEvent::End), logout_handler);
                 }
             }
+            None
         }
         // Bastion Pull: https://discord.com/channels/251073753759481856/451032574538547201/780538521492389908
-        // Currently "unlock_camo" is not implemented
-        Event::ItemAdded(ia) => {
-            if &ia.character_id == char_id {
-                let data = logout_handler.data_clone.read().await;
-                let weapon_ids = data.get::<WeaponIds>().unwrap();
-
-                if ia.context == "CaptureTheFlag.TakeFlag" {
-                    play_random_sound("ctf_flag_take", guild_id, voicepack, manager).await;
-                } else if ia.context == "GuildBankWithdrawal" && ia.item_id == 6008913 {
-                    play_random_sound("bastion_pull", guild_id, voicepack, manager).await;
-                } else if weapon_ids.contains(&ia.item_id) {
-                    play_random_sound("unlock_weapon", guild_id, voicepack, manager).await;
-                } else {
-                    play_random_sound("unlock_any", guild_id, voicepack, manager).await;
-                }
-            }
-        }
-        _ => (),
-    }
+        // Currently "unlock_camo" and "enemy_bastion_pull" are not implemented
+        Event::ItemAdded(ia) => handle_item_added(ia, char_id, logout_handler).await,
+        _ => None,
+    };
+    if let Some(category) = maybe_category {
+        play_random_sound(&category, guild_id, voicepack, manager).await;
+    };
 }
 
 // Plays a random track from the given category in the VC, returns Option<TrackHandle> if it has successfully started
@@ -149,8 +175,10 @@ async fn play_random_sound(
         // Track names file could be empty, so do nothing if None
         let mut rng: StdRng = SeedableRng::from_entropy();
         if let Some(random_track_name) = track_names.choose(&mut rng) {
-            let random_track_path =
-                format!("{}/voicepacks/crashmore/tracks/{}", pwd, random_track_name);
+            let random_track_path = format!(
+                "{}/voicepacks/{}/tracks/{}",
+                pwd, voicepack, random_track_name
+            );
             let source = match songbird::ffmpeg(random_track_path).await {
                 Ok(source) => source,
                 Err(why) => {
