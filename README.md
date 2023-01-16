@@ -8,9 +8,9 @@ voicepacks can be added and used instead. If you want to add a voicepack, see th
 
 ## How to use
 
-1. [add the Santa Claus bot to your Discord server](https://discord.com/oauth2/authorize?client_id=1055544310575149188&permissions=3145728&scope=bot%20applications.commands).
-   The bot will need permissions to connect to/speak in voice channels, and create application commands.
-2. connect to a voice channel that the bot can access.
+1. [add the Santa Claus bot to your Discord server](https://discord.com/oauth2/authorize?client_id=1055544310575149188&permissions=3147776&scope=bot%20applications.commands).
+   The bot will need permissions to connect to/speak in voice channels, create application commands, and send messages.
+2. connect to a voice channel that the bot can join.
 3. use the /track command to begin a session. `character_name` should be the name of your Planetside character, and
    `voicepack` should be one of the voicepack options (e.g. "crashmore").
 
@@ -30,10 +30,11 @@ the issue.
 
 If you want to add a voicepack, see the README in `voicepacks/`
 
-If you want to add a voiceline category:
+If you want to add a voiceline category, here are the general steps (you'll need to know some Rust):
 
 1. fork this repo
-2. add the empty categoroy .txt file to all voicepacks.
+2. add the empty category .txt file to all voicepacks (including `TEMPLATE`).
 3. add the logic to play a random track from the category in `event.rs`, `handle_event()`.
-4. if needed, update the event names in `track.rs`, `character_subscription()`.
+4. if your category uses events we don't currently subscribe to, update the event names in `track.rs`,
+   `character_subscription()`.
 5. open a PR to the upstream repo. If the CI tests pass (WIP), I'll merge and release with your new category.
