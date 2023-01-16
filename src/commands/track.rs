@@ -94,6 +94,15 @@ async fn do_run(
         .expect("Songbird Voice client placed in at initialization.")
         .clone();
 
+    // Make sure someone in this guild isn't using the bot already
+    if let Some(call) = manager.get(guild_id) {
+        if let Some(_) = call.lock().await.current_channel() {
+            return format!("It looks like someone else in this server is currently tracking a character - you must wait for\
+ them to logout or for their tracking session to expire ({} minutes of no events) before starting a new tracking\
+ session in this server.", TIMEOUT_MINS).to_string();
+        }
+    }
+
     let _handler = manager.join(guild.id, connect_to).await;
 
     // Fetch character
@@ -140,13 +149,6 @@ async fn do_run(
         .cloned()
         .expect("Unable to get patterns in /track");
     let mut patterns = patterns.lock().await;
-
-    // Make sure someone in this guild isn't using the bot already
-    if patterns.contains_key(&character_id) {
-        return format!("It looks like someone else in this server is currently tracking a character - you must wait for\
- them to logout or for their tracking session to expire ({} minutes of no events) before starting a new tracking\
- session in this server.", TIMEOUT_MINS).to_string();
-    }
 
     let (tx, mut rx) = mpsc::channel(1000);
 
