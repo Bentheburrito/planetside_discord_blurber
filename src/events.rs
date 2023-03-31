@@ -186,6 +186,7 @@ async fn play_random_sound(
                     return None;
                 }
             };
+            println!("Enqueueing source now");
             Some(handler.enqueue_source(source))
         } else {
             None

@@ -118,7 +118,7 @@ impl EventHandler for Handler {
     }
 }
 
-async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> RealtimeClient {
+pub async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> RealtimeClient {
     let sid = env::var("SERVICE_ID").expect("Expected a service ID in the environment");
 
     let config = RealtimeClientConfig {
@@ -136,9 +136,12 @@ async fn init_ess(event_patterns: Arc<Mutex<HashMap<u64, Sender<Event>>>>) -> Re
 
     let mut client = RealtimeClient::new(config);
 
-    client.subscribe(subscription).await;
-
     let mut event_receiver = client.connect().await.expect("Could not connect to ESS");
+
+    client
+        .subscribe(subscription)
+        .await
+        .expect("Could not subscribe after connecting!");
 
     task::spawn(async move {
         while let Some(event) = event_receiver.recv().await {

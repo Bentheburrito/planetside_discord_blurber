@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use crate::events::{handle_event, OnLogout};
-use crate::{CommandResponse, ESSClient, EventPatterns};
+use crate::{init_ess, CommandResponse, ESSClient, EventPatterns};
 
 const TIMEOUT_MINS: u8 = 5;
 
@@ -102,9 +102,11 @@ async fn do_run(
  session in this server.", TIMEOUT_MINS).to_string();
         }
     }
+    println!("about to join channel...takes a while now?");
 
     let _handler = manager.join(guild.id, connect_to).await;
 
+    println!("joined channel...");
     // Fetch character
     let sid = env::var("SERVICE_ID").expect("Expected a service ID in the environment");
     let mut client_config = ApiClientConfig::default();
@@ -138,16 +140,33 @@ async fn do_run(
     };
 
     let mut data = ctx.data.write().await;
-    let ess_client = data.get_mut::<ESSClient>().unwrap();
-    ess_client
-        .subscribe(character_subscription(character_id))
-        .await;
-
-    // Add entry to cached patterns
     let patterns = data
         .get::<EventPatterns>()
         .cloned()
         .expect("Unable to get patterns in /track");
+
+    // If we get an error when trying to subscribe, our ESS socket has probably died, so try to reinitialize
+    let ess_client = data.get_mut::<ESSClient>().unwrap();
+    if let Err(_) = ess_client
+        .subscribe(character_subscription(character_id))
+        .await
+    {
+        println!("FAILED we're here now");
+        let patterns_clone = patterns.clone();
+        // drop(ess_client);
+        let mut new_ess_client = tokio::task::spawn(async move { init_ess(patterns_clone).await })
+            .await
+            .expect("Could not RE-initialize ESS client for /track");
+
+        new_ess_client
+            .subscribe(character_subscription(character_id))
+            .await
+            .expect("Could not resubscribe after RE-initialization of ESS client.");
+
+        println!("RE-initialized client after trying to subscribe.");
+        data.insert::<ESSClient>(new_ess_client);
+    }
+
     let mut patterns = patterns.lock().await;
 
     let (tx, mut rx) = mpsc::channel(1000);
@@ -217,6 +236,7 @@ async fn do_run(
         }
     });
 
+    // Add entry to cached patterns
     patterns.insert(character_id, tx);
 
     return success_message;
